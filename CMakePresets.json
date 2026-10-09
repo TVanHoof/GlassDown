@@ -19,5 +19,12 @@
     }
   ],
   "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
   ]
 }

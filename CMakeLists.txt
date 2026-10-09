@@ -35,6 +35,13 @@ target_sources(${PROJECTNAME}
 
 add_subdirectory(src/PluginLogic)
 
+# Defines BUILD_TESTING (ON by default) and the `test` target. Wrapped so
+# release builds can configure with -DBUILD_TESTING=OFF to skip the tests.
+include(CTest)
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
+
 # Lets the plugin sources include plugin code by its path relative to src/,
 # e.g. #include <PluginLogic/PluginLogic.h>
 target_include_directories(${PROJECTNAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
