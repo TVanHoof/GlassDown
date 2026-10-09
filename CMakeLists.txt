@@ -30,10 +30,14 @@ juce_add_plugin(${PROJECTNAME}
 target_sources(${PROJECTNAME}
   PRIVATE
     src/PluginProcessor.cpp
-    #src/PluginProcessor.h
     src/PluginEditor.cpp
-    #src/PluginEditor.h
 )
+
+add_subdirectory(src/PluginLogic)
+
+# Lets the plugin sources include plugin code by its path relative to src/,
+# e.g. #include <PluginLogic/PluginLogic.h>
+target_include_directories(${PROJECTNAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 target_compile_features(${PROJECTNAME} PRIVATE cxx_std_17)
 
@@ -42,6 +46,7 @@ target_compile_definitions(${PROJECTNAME} PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(${PROJECTNAME}
   PRIVATE
     juce::juce_audio_utils
+    PluginLogic
 
   PUBLIC
   juce::juce_recommended_config_flags

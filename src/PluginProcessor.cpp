@@ -2,7 +2,7 @@
 #include "PluginEditor.h"
 
 PluginProcessor::PluginProcessor():
-                AudioProcessor(BusesProperties()){
+                AudioProcessor(){
 }
 PluginProcessor::~PluginProcessor(){
 }
@@ -24,6 +24,8 @@ double PluginProcessor::getTailLengthSeconds() const { return 0.0f; }
 void PluginProcessor::prepareToPlay(double sampleRate, int maximumExpectedSamplesPerBlock){
   juce::ignoreUnused(sampleRate);
   juce::ignoreUnused(maximumExpectedSamplesPerBlock);
+
+  applySegments();
 }
 
 void PluginProcessor::releaseResources(){
@@ -31,10 +33,10 @@ void PluginProcessor::releaseResources(){
 }
 
 void PluginProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::MidiBuffer &midiMessages){
-  process(buffer, midiMessages);
+  pluginlogic.process(buffer, midiMessages);
 }
 void PluginProcessor::processBlock(juce::AudioBuffer<double>& buffer, juce::MidiBuffer& midiMessages){
-  process(buffer, midiMessages);
+  pluginlogic.process(buffer, midiMessages);
 }
 
 void PluginProcessor::getStateInformation(juce::MemoryBlock& destData){
@@ -45,9 +47,8 @@ void PluginProcessor::setStateInformation(const void* data, int sizeInBytes){
   juce::ignoreUnused(sizeInBytes);
 }
 
-template <typename T>
-void PluginProcessor::process(juce::AudioBuffer<T> &buffer, juce::MidiBuffer &midiMessages){
-  juce::ignoreUnused(buffer, midiMessages);
+void PluginProcessor::applySegments(){
+  pluginlogic.applySegments();
 }
 
 juce::AudioProcessorEditor* PluginProcessor::createEditor(){

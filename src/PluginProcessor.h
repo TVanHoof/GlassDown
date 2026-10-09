@@ -1,12 +1,14 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <PluginLogic/PluginLogic.h>
 
 class PluginProcessor: public juce::AudioProcessor{
   public:
     PluginProcessor();
     ~PluginProcessor() override;
 
+    // boilerplate JUCE requirements
     const juce::String getName() const override;
     bool acceptsMidi() const override;
     bool producesMidi() const override;
@@ -28,13 +30,15 @@ class PluginProcessor: public juce::AudioProcessor{
     void releaseResources() override;
 
     void processBlock(juce::AudioBuffer<float> &buffer, juce::MidiBuffer &midiMessages) override;
-    void processBlock(juce::AudioBuffer<double>& buffer, juce::MidiBuffer& midiMessages) override;
+    void processBlock(juce::AudioBuffer<double> &buffer, juce::MidiBuffer& midiMessages) override;
 
     double getTailLengthSeconds() const override;
 
     juce::AudioProcessorEditor* createEditor() override;
 
+    // custom
+    void applySegments();
+
   private:
-    template <typename T>
-    void process(juce::AudioBuffer<T> &buffer, juce::MidiBuffer& midiMessages);
+    PluginLogic pluginlogic;
 };
