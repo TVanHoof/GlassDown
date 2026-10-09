@@ -13,7 +13,8 @@ class PluginLogic{
     template <typename T>
     void process(T* samples, int numSamples);
 
-    void applySegments();
+    using point = std::pair<double, double>;
+    void applySegments(const std::vector<point>& points);
 
   private:
     Graph graph;

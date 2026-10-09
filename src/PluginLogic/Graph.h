@@ -2,7 +2,9 @@
 
 #include "Segment.h"
 
-#include <array>
+#include <vector>
+
+using point = std::pair<double, double>;
 
 class Graph{
   public:
@@ -11,8 +13,7 @@ class Graph{
     template <typename T>
     T applyLookup(T& sample);
 
-    void applySegments();
+    void applySegments(const std::vector<point>& segments);
   private:
-    std::array<Segment, 500> segments;
-    int nNodes{0};
+    std::vector<Segment> segments;
 };

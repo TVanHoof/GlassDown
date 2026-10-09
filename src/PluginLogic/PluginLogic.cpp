@@ -11,8 +11,8 @@ void PluginLogic::process(T* samples, int numSamples){
   }
 }
 
-void PluginLogic::applySegments(){
-  graph.applySegments();
+void PluginLogic::applySegments(const std::vector<point>& points){
+  graph.applySegments(points);
 }
 
 // Explicit instantiations: the definition lives in this TU, but callers live

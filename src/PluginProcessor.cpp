@@ -61,7 +61,8 @@ void PluginProcessor::setStateInformation(const void* data, int sizeInBytes){
 }
 
 void PluginProcessor::applySegments(){
-  pluginlogic.applySegments();
+  std::vector<point> points;
+  pluginlogic.applySegments(points);
 }
 
 juce::AudioProcessorEditor* PluginProcessor::createEditor(){
