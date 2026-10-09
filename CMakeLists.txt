@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-set(PROJECTNAME SwitchBoard)
+set(PROJECTNAME GlassDown)
 
 project(${PROJECTNAME} VERSION 0.0.0)
 
