@@ -1,2 +1,12 @@
+# CMake build directories (CMakePresets.json writes to build/<preset>)
+build/
 build_default
 
+# CMake user files
+CMakeUserPresets.json
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+compile_commands.json
