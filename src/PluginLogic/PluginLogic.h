@@ -1,15 +1,17 @@
 #pragma once
 
-#include <juce_audio_processors/juce_audio_processors.h>
+// Deliberately free of any JUCE dependency: this library holds the DSP logic
+// only, so it compiles once without dragging in the JUCE modules, and can be
+// unit-tested without a JUCE build. Callers own buffer/channel iteration.
 #include "Graph.h"
 
 class PluginLogic{
   public:
     PluginLogic();
 
+    // Processes a single channel of samples in place.
     template <typename T>
-    void process(juce::AudioBuffer<T> &buffer, juce::MidiBuffer& midiMessages);
-
+    void process(T* samples, int numSamples);
 
     void applySegments();
 

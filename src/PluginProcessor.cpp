@@ -33,10 +33,23 @@ void PluginProcessor::releaseResources(){
 }
 
 void PluginProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::MidiBuffer &midiMessages){
-  pluginlogic.process(buffer, midiMessages);
+  juce::ignoreUnused(midiMessages);
+
+  const auto nChannels = buffer.getNumChannels();
+  const auto nSamples  = buffer.getNumSamples();
+
+  for(int channelIdx = 0; channelIdx < nChannels; ++channelIdx)
+    pluginlogic.process(buffer.getWritePointer(channelIdx), nSamples);
 }
+
 void PluginProcessor::processBlock(juce::AudioBuffer<double>& buffer, juce::MidiBuffer& midiMessages){
-  pluginlogic.process(buffer, midiMessages);
+  juce::ignoreUnused(midiMessages);
+
+  const auto nChannels = buffer.getNumChannels();
+  const auto nSamples  = buffer.getNumSamples();
+
+  for(int channelIdx = 0; channelIdx < nChannels; ++channelIdx)
+    pluginlogic.process(buffer.getWritePointer(channelIdx), nSamples);
 }
 
 void PluginProcessor::getStateInformation(juce::MemoryBlock& destData){
