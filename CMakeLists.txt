@@ -4,7 +4,7 @@ set(PROJECTNAME SwitchBoard)
 
 project(${PROJECTNAME} VERSION 0.0.0)
 
-add_subdirectory(JUCE)
+add_subdirectory(deps/JUCE)
 
 juce_add_plugin(${PROJECTNAME}
   COMPANY_NAME "EpiCenter"
