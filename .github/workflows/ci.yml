@@ -3,15 +3,130 @@ name: CI
 on:
   push:
     branches: [main]
+    # Pushing a v* tag is what starts a release: all three platforms are built
+    # with the version taken from the tag, and the release is published only if
+    # every job passes.
+    tags: ['v*']
   pull_request:
     branches: [main]
+  # Manual run: pick exactly which platforms and configurations to build.
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Platforms to build
+        type: choice
+        default: all
+        options: [all, linux, windows, macos]
+      configs:
+        description: Build configurations
+        type: choice
+        default: release
+        options: [all, debug, release]
 
-# A new push to the same branch cancels the previous run.
+# A new push to the same branch cancels the previous run. A tagged release build
+# must never be cancelled half-way through, so tag refs are exempt.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
+  # Turns the event plus the manual inputs into a concrete job matrix, and
+  # works out the version number to configure CMake with:
+  #   push / pull_request  -> Linux only, Debug + Release, version 0.0.0
+  #   workflow_dispatch    -> whatever was selected in the UI, version 0.0.0
+  #   push of a v* tag     -> every platform, Release only, version from the tag
+  #
+  # macOS runners bill at $0.062/min against $0.006 for Linux, so a single
+  # macOS minute costs as much as ten Linux ones. Keeping them off the default
+  # path is the single biggest saving. This job costs one ubuntu minute
+  # (~$0.006) and keeps the matrix in exactly one place. jq is preinstalled on
+  # hosted runners.
+  plan:
+    name: Plan
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      cmake_args: ${{ steps.select.outputs.cmake_args }}
+      prerelease: ${{ steps.select.outputs.prerelease }}
+    steps:
+      # A release must be tagged on the default branch. Rejecting it here costs
+      # one checkout and saves three platform builds.
+      - name: Check out history (tag pushes only)
+        if: github.ref_type == 'tag'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tag is on the default branch
+        if: github.ref_type == 'tag'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"; then
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on $DEFAULT_BRANCH. Tag releases on $DEFAULT_BRANCH only." >&2
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME is on $DEFAULT_BRANCH"
+
+      - id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
+          INPUT_CONFIGS: ${{ inputs.configs }}
+        run: |
+          set -euo pipefail
+
+          # Always a valid CMake argument, so no caller has to deal with an
+          # empty expansion (PowerShell turns an empty string into an argument).
+          cmake_args="-DPLUGIN_VERSION=0.0.0"
+          prerelease=0
+
+          case "$EVENT" in
+            workflow_dispatch) platforms="$INPUT_PLATFORMS"; configs="$INPUT_CONFIGS" ;;
+            push)
+              if [ "$REF_TYPE" = "tag" ]; then
+                platforms="all"; configs="release"
+                # v1.2.3 -> 1.2.3, v1.2.3-rc1 -> 1.2.3 published as a prerelease
+                version="${TAG#v}"
+                version="${version%%-*}"
+                if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
+                  echo "::error::Tag '$TAG' does not carry a usable version number" >&2
+                  exit 1
+                fi
+                cmake_args="-DPLUGIN_VERSION=$version"
+                if [[ "$TAG" == *-* ]]; then prerelease=1; fi
+              else
+                platforms="linux"; configs="all"
+              fi
+              ;;
+            *) platforms="linux"; configs="all" ;;
+          esac
+          case " $platforms " in *" all "*) platforms="linux windows macos";; esac
+          case " $configs "   in *" all "*) configs="debug release";; esac
+
+          cat > "$RUNNER_TEMP/entries.json" <<'JSON'
+          [
+            {"name":"Linux Debug","platform":"linux","flavour":"debug","os":"ubuntu-22.04","preset":"linux-debug","cmake_config":"Debug","artifact":"GlassDown-linux-Debug"},
+            {"name":"Linux Release","platform":"linux","flavour":"release","os":"ubuntu-22.04","preset":"linux-release","cmake_config":"Release","artifact":"GlassDown-linux-Release"},
+            {"name":"macOS Debug","platform":"macos","flavour":"debug","os":"macos-14","preset":"macos-debug","cmake_config":"Debug","artifact":"GlassDown-macos-Debug"},
+            {"name":"macOS Release","platform":"macos","flavour":"release","os":"macos-14","preset":"macos-release","cmake_config":"Release","artifact":"GlassDown-macos-Release"},
+            {"name":"Windows Debug","platform":"windows","flavour":"debug","os":"windows-2022","preset":"windows-debug","cmake_config":"Debug","artifact":"GlassDown-windows-Debug"},
+            {"name":"Windows Release","platform":"windows","flavour":"release","os":"windows-2022","preset":"windows-release","cmake_config":"Release","artifact":"GlassDown-windows-Release"}
+          ]
+          JSON
+
+          plat_list=$(printf '%s\n' $platforms | jq -R . | jq -sc .)
+          flavour_list=$(printf '%s\n' $configs | jq -R . | jq -sc .)
+          matrix=$(jq -c --argjson p "$plat_list" --argjson f "$flavour_list" \
+            '{include: [.[] | select(.platform as $x | $p | index($x)) | select(.flavour as $y | $f | index($y))]}' \
+            "$RUNNER_TEMP/entries.json")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "cmake_args=$cmake_args" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
   # Fast gate: the test target links only PluginLogic and gtest, so no JUCE
   # module is compiled and no system library is linked. Runs first and gates
   # the platform builds.
@@ -26,11 +141,12 @@ jobs:
       # Configure still parses the full project (add_subdirectory(deps/JUCE)
       # and juce_add_plugin both run), so JUCE's pkg-config modules must be
       # present even though only PluginLogic is compiled. They are the -dev
-      # packages only; nothing here links against them.
+      # packages only; nothing here links against them. Ninja is not installed:
+      # every preset uses the "Unix Makefiles" generator.
       - name: Install build tools and JUCE configure dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build ccache \
+          sudo apt-get install -y ccache \
             libasound2-dev libfreetype-dev libfontconfig1-dev
 
       - name: Configure
@@ -44,47 +160,11 @@ jobs:
 
   build:
     name: ${{ matrix.name }}
-    needs: unit-tests
+    needs: [plan, unit-tests]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Linux Debug
-            os: ubuntu-22.04
-            preset: linux-debug
-            config: Debug
-            artifact: GlassDown-linux-debug
-
-          - name: Linux Release
-            os: ubuntu-22.04
-            preset: linux-release
-            config: Release
-            artifact: GlassDown-linux-release
-
-          - name: macOS Debug
-            os: macos-14
-            preset: macos-debug
-            config: Debug
-            artifact: GlassDown-macos-debug
-
-          - name: macOS Release
-            os: macos-14
-            preset: macos-release
-            config: Release
-            artifact: GlassDown-macos-release
-
-          - name: Windows Debug
-            os: windows-2022
-            preset: windows-debug
-            config: Debug
-            artifact: GlassDown-windows-debug
-
-          - name: Windows Release
-            os: windows-2022
-            preset: windows-release
-            config: Release
-            artifact: GlassDown-windows-release
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -103,37 +183,140 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build ccache \
+          sudo apt-get install -y ccache \
             libasound2-dev libfreetype-dev libfontconfig1-dev \
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
             libxinerama-dev libxrandr-dev libxrender-dev libxi-dev \
             libglu1-mesa-dev mesa-common-dev libegl-dev
 
+      # ccache only; ninja is not installed because every preset uses the
+      # "Unix Makefiles" generator, and brew is slow enough to notice.
       - name: Install ccache (macOS)
         if: runner.os == 'macOS'
-        run: brew install ninja ccache
+        run: brew install ccache
 
+      # CMAKE_EXTRA_ARGS carries -DPLUGIN_VERSION=<n>, set from the tag on tag
+      # builds. Changing it rewrites the compile definitions, so the cached
+      # build directory rebuilds from scratch rather than shipping binaries
+      # stamped with the previous version.
       - name: Configure (ccache)
         if: runner.os != 'Windows'
-        run: cmake --preset ${{ matrix.preset }} -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        env:
+          CMAKE_EXTRA_ARGS: ${{ needs.plan.outputs.cmake_args }}
+        run: cmake --preset ${{ matrix.preset }} $CMAKE_EXTRA_ARGS -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake --preset ${{ matrix.preset }}
+        env:
+          CMAKE_EXTRA_ARGS: ${{ needs.plan.outputs.cmake_args }}
+        run: cmake --preset ${{ matrix.preset }} $env:CMAKE_EXTRA_ARGS
 
+      # The build presets pin jobs: 16, which oversubscribes a hosted runner
+      # (2-4 Linux cores, 3 on macos-14) and makes the -flto Release link
+      # thrash. Billing is per wall-clock minute, so oversubscription costs
+      # money. Git Bash is available on Windows runners too, which keeps this
+      # to a single step.
       - name: Build
-        run: cmake --build --preset ${{ matrix.preset }}
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cores=$(powershell -NoProfile -Command "(Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors")
+          else
+            cores=$(getconf _NPROCESSORS_ONLN)
+          fi
+          cmake --build --preset ${{ matrix.preset }} --parallel "$cores"
 
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
 
-      # JUCE places artefacts under GlassDown_artefacts/<Config>/, where <Config>
-      # is Release or Debug.
-      - name: Upload plugin artefacts
+      # upload-artifact drops file modes and cannot describe a bundle as a
+      # single asset, so the VST3 and Standalone output is archived natively
+      # first: ditto keeps the symlinks and metadata an .app/.vst3 needs,
+      # Compress-Archive and zip are preinstalled on the other two runners.
+      - name: Package release artefacts
+        if: matrix.flavour == 'release'
+        shell: bash
+        env:
+          ARTEFACTS: build/${{ matrix.preset }}/GlassDown_artefacts/${{ matrix.cmake_config }}
+          # Not called ZIP: Info-ZIP treats a ZIP environment variable as its
+          # default archive name and would try to create it inside the staging
+          # directory below.
+          ARCHIVE: dist/${{ matrix.artifact }}.zip
+        run: |
+          set -euo pipefail
+          stage="$GITHUB_WORKSPACE/stage"
+          out="$GITHUB_WORKSPACE/$ARCHIVE"
+          rm -rf "$stage"
+          mkdir -p "$stage/GlassDown" "$(dirname "$out")"
+          cp -R "$ARTEFACTS/VST3" "$ARTEFACTS/Standalone" "$stage/GlassDown/"
+          case "$RUNNER_OS" in
+            macOS)
+              ditto -c -k --sequesterRsrc --keepParent "$stage/GlassDown" "$out" ;;
+            Windows)
+              pwsh -NoProfile -Command "Compress-Archive -Path '$(cygpath -w "$stage")' -DestinationPath '$(cygpath -w "$out")'" ;;
+            *)
+              (cd "$stage" && zip -q -r "$out" GlassDown) ;;
+          esac
+          ls -l "$out"
+
+      # Only Release builds are archived: a Debug upload doubled the upload
+      # time and the storage cost on every run, and pull requests (including
+      # forks, whose token is read-only) have no use for them. A missing archive
+      # means a release build produced no output, which is a failure, not a
+      # warning.
+      - name: Upload release artefacts
+        if: matrix.flavour == 'release' && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            build/${{ matrix.preset }}/GlassDown_artefacts/${{ matrix.config }}/VST3
-            build/${{ matrix.preset }}/GlassDown_artefacts/${{ matrix.config }}/Standalone
-          if-no-files-found: warn
+          path: dist/${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+  # Only runs when all platform jobs passed: this is the gate that stops a
+  # broken macOS or Windows build from producing a public release. `plan` is
+  # listed as well because a job does not pass its dependencies' outputs on,
+  # and the prerelease flag is decided there.
+  release:
+    name: Publish GitHub Release
+    # Tag pushes only: on a branch or a pull request github.ref_name is the
+    # branch name, and there would be nothing to publish a release against.
+    if: github.ref_type == 'tag'
+    needs: [plan, build]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          # Matches the artifact names of the Release entries in the matrix:
+          # GlassDown-linux-Release, GlassDown-macos-Release,
+          # GlassDown-windows-Release.
+          pattern: GlassDown-*-Release
+          merge-multiple: true
+          path: dist
+
+      # Re-runnable: an existing release for the same tag gets its assets
+      # refreshed instead of failing.
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(dist/*.zip)
+          if ((${#assets[@]} == 0)); then
+            echo "::error::No release archives were downloaded" >&2
+            exit 1
+          fi
+          flags=()
+          if [ "$PRERELEASE" = "1" ]; then
+            flags+=(--prerelease)
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, refreshing its assets"
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${assets[@]}" --generate-notes "${flags[@]}"
+          fi

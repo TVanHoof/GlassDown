@@ -2,15 +2,27 @@ cmake_minimum_required(VERSION 3.22)
 
 set(PROJECTNAME GlassDown)
 
+# Plugin version, numeric only. JUCE turns this into the VST3/AU version code
+# with _juce_version_code(), which silently mis-computes anything that is not a
+# dotted number, and into CFBundleShortVersionString in the macOS Info.plist.
+# Tag builds override it with -DPLUGIN_VERSION=<tag minus the "v" and any
+# prerelease suffix>; local and untagged builds stay on 0.0.0.
+set(PLUGIN_VERSION "0.0.0" CACHE STRING "Plugin version number, e.g. 1.2.3")
+
+if(NOT PLUGIN_VERSION MATCHES "^[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?(\\.[0-9]+)?$")
+  message(FATAL_ERROR "PLUGIN_VERSION '${PLUGIN_VERSION}' is not a valid version number. "
+    "Use up to four numeric components, e.g. 1.2.3.")
+endif()
+
+# The VST3 manifest describes the shipped binary, so only produce it for
+# release builds.
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-  set(PLUGIN_VERSION 0.0.1)
   set(GENERATE_MANIFEST TRUE)
 else()
-  set(PLUGIN_VERSION 0.0.0)
   set(GENERATE_MANIFEST FALSE)
 endif()
 
-project(${PROJECTNAME} VERSION 0.0.0)
+project(${PROJECTNAME} VERSION ${PLUGIN_VERSION})
 
 add_subdirectory(deps/JUCE)
 
