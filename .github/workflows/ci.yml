@@ -286,6 +286,26 @@ jobs:
     permissions:
       contents: write
     steps:
+      # AGPL section 6: object code offered from a release must have the
+      # corresponding source offered from the same place at no further charge.
+      # The archive is the repository plus the pinned submodules, which is
+      # everything needed to build the binaries sitting next to it.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: source
+
+      - name: Build the source archive
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist-source
+          tar --exclude='.git' --exclude='build' \
+              --transform "s,^\./,GlassDown-$TAG/," \
+              -czf "dist-source/GlassDown-$TAG-source.tar.gz" -C source .
+          ls -lh dist-source
+
       - uses: actions/download-artifact@v4
         with:
           # Matches the artifact names of the Release entries in the matrix:
@@ -301,11 +321,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
           PRERELEASE: ${{ needs.plan.outputs.prerelease }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(dist/*.zip)
+          assets=(dist/*.zip dist-source/*.tar.gz)
           if ((${#assets[@]} == 0)); then
             echo "::error::No release archives were downloaded" >&2
             exit 1
@@ -314,9 +335,18 @@ jobs:
           if [ "$PRERELEASE" = "1" ]; then
             flags+=(--prerelease)
           fi
+          notes=$(printf '%s\n' \
+            "GlassDown is free software under the GNU Affero General Public License, version 3 or later." \
+            "" \
+            "The corresponding source for these binaries is GlassDown-$TAG-source.tar.gz," \
+            "attached here alongside them, and at https://github.com/$REPO/tree/$TAG" \
+            "The full licence text is in that archive as LICENSE; the third-party" \
+            "components JUCE vendors are listed in THIRD_PARTY_NOTICES.md." \
+            "" \
+            "The binaries are provided as is, without warranty of any kind.")
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists, refreshing its assets"
             gh release upload "$TAG" "${assets[@]}" --clobber
           else
-            gh release create "$TAG" "${assets[@]}" --generate-notes "${flags[@]}"
+            gh release create "$TAG" "${assets[@]}" --generate-notes --notes "$notes" "${flags[@]}"
           fi
