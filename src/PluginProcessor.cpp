@@ -22,10 +22,11 @@ void PluginProcessor::changeProgramName(int index, const juce::String& name) { j
 double PluginProcessor::getTailLengthSeconds() const { return 0.0f; }
 
 void PluginProcessor::prepareToPlay(double sampleRate, int maximumExpectedSamplesPerBlock){
-  juce::ignoreUnused(sampleRate);
   juce::ignoreUnused(maximumExpectedSamplesPerBlock);
 
-  applySegments();
+  loadPreset();
+  // pluginlogic.prepareToPlay needs to the last call to not fade into the graph
+  pluginlogic.prepareToPlay(sampleRate, 0.02f);
 }
 
 void PluginProcessor::releaseResources(){
@@ -61,8 +62,17 @@ void PluginProcessor::setStateInformation(const void* data, int sizeInBytes){
 }
 
 void PluginProcessor::applySegments(){
+  // GUI-thread -> PluginLogic access to state used by processBlock must hold the callback lock.
+  juce::CriticalSection::ScopedLockType lock(getCallbackLock());
   std::vector<point> points;
   pluginlogic.applySegments(points);
+}
+
+void PluginProcessor::loadPreset(){
+  // GUI-thread -> PluginLogic access to state used by processBlock must hold the callback lock.
+  juce::CriticalSection::ScopedLockType lock(getCallbackLock());
+  std::vector<point> points;
+  pluginlogic.loadPreset(points);
 }
 
 juce::AudioProcessorEditor* PluginProcessor::createEditor(){

@@ -38,6 +38,7 @@ class PluginProcessor: public juce::AudioProcessor{
 
     // custom
     void applySegments();
+    void loadPreset();
 
   private:
     PluginLogic pluginlogic;

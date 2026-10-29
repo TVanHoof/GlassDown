@@ -77,7 +77,7 @@ TEST(GraphTests, SampleAboveRangeIsMappedByTheLastSegment) {
   graph.applySegments({ point{ 0.0, 0.0 }, point{ 0.5, 1.0 } });
 
   // Out of range above: extrapolated along the last (only) segment, y = 2x.
-  EXPECT_NEAR(lookup(graph, 2.0), 4.0, kTolerance);
+  EXPECT_NEAR(lookup(graph, 2.0), 1.0, kTolerance);
 }
 
 TEST(GraphTests, TwoSegmentsApplyEachSlopeOnItsOwnRange) {

@@ -2,12 +2,15 @@ set(SOURCES
   Graph.cpp
   PluginLogic.cpp
   Segment.cpp
+  Smoothener.cpp
 )
 
 set(HEADERS
   Graph.h
   PluginLogic.h
   Segment.h
+  Smoothener.h
+  TrippleBuffer.h
 )
 
 add_library(PluginLogic STATIC "${SOURCES}" "${HEADERS}")
