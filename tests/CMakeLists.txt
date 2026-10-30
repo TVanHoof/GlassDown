@@ -22,7 +22,7 @@ target_link_libraries(PluginLogicTests
     GTest::gtest_main
 )
 
-target_compile_features(PluginLogicTests PRIVATE cxx_std_17)
+target_compile_features(PluginLogicTests PRIVATE cxx_std_20)
 
 include(GoogleTest)
 gtest_discover_tests(PluginLogicTests)

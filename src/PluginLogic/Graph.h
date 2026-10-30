@@ -21,10 +21,12 @@
 
 #pragma once
 
-#include "Segment.h"
 
 #include <vector>
 #include <array>
+#include <cstddef>
+
+#include "Segment.h"
 
 using point = std::pair<double, double>;
 static constexpr int kMaxSegments = 1024;

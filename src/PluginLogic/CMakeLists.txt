@@ -26,7 +26,11 @@ add_library(PluginLogic STATIC "${SOURCES}" "${HEADERS}")
 
 target_include_directories(PluginLogic PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_compile_features(PluginLogic PUBLIC cxx_std_17)
+set_target_properties(PluginLogic PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
 
 # No JUCE linkage on purpose. The module targets are INTERFACE libraries that
 # ship their .cpp files as INTERFACE_SOURCES, so linking one here would make
